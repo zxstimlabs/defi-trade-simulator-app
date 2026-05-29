@@ -1,13 +1,12 @@
 import { useState, useCallback, useEffect } from "react"
 import { RefreshCw, LoaderCircle, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
+import { cn, formatEthBalance, formatVndBalance } from "@/lib/utils"
 import { useReadContracts } from "wagmi"
 import { useMutation } from "@tanstack/react-query"
 import {
   erc20Abi,
   type Address,
-  formatUnits,
   parseUnits,
   encodeFunctionData,
   encodePacked,
@@ -54,33 +53,6 @@ const BATCH_CALL_AND_SPONSOR_ABI = [
   },
 ] as const
 
-const SLIDER_MARKS = [0, 25, 50, 75, 100]
-
-function SliderBar({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  return (
-    <div className="relative flex items-center py-3">
-      <div className="relative h-px w-full bg-muted-foreground/30">
-        <div
-          className="absolute inset-y-0 left-0 bg-yellow-500"
-          style={{ width: `${value}%` }}
-        />
-      </div>
-      {SLIDER_MARKS.map((mark) => (
-        <button
-          key={mark}
-          type="button"
-          className={cn(
-            "absolute size-2.5 rotate-45 border border-muted-foreground/50 -translate-x-1/2 transition-colors",
-            value >= mark ? "bg-yellow-500 border-yellow-500" : "bg-background"
-          )}
-          style={{ left: `${mark}%` }}
-          onClick={() => onChange(mark)}
-        />
-      ))}
-    </div>
-  )
-}
-
 function buildV4SwapInput(zeroForOne: boolean, amountIn: bigint): `0x${string}` {
   const inputCurrency = zeroForOne ? CURRENCY0 : CURRENCY1
   const outputCurrency = zeroForOne ? CURRENCY1 : CURRENCY0
@@ -117,7 +89,6 @@ function OrderPanel({
   const activeWallet = useAtomValue<UmKeystore | null>(activeWalletAtom)
   const password = useAtomValue(passwordAtom)
   const [amount, setAmount] = useState("")
-  const [sliderValue, setSliderValue] = useState(0)
 
   const zeroForOne = side === "sell"
   const inputToken = zeroForOne ? CURRENCY0 : CURRENCY1
@@ -245,14 +216,6 @@ function OrderPanel({
         <span className="ml-2 text-xs text-muted-foreground">{inputSymbol}</span>
       </div>
 
-      <SliderBar value={sliderValue} onChange={(v) => {
-        setSliderValue(v)
-        if (availableBalance > BigInt(0)) {
-          const scaled = (availableBalance * BigInt(v)) / BigInt(100)
-          setAmount(formatUnits(scaled, inputDecimals))
-        }
-      }} />
-
       <div className="flex flex-col gap-1 text-xs">
         <div className="flex justify-between items-center">
           <span className="text-yellow-500">Available</span>
@@ -260,8 +223,10 @@ function OrderPanel({
             <span>
               {isBalancesLoading ? (
                 <Skeleton className="inline-block w-16 h-3" />
+              ) : zeroForOne ? (
+                formatEthBalance(availableBalance)
               ) : (
-                formatUnits(availableBalance, inputDecimals)
+                formatVndBalance(availableBalance)
               )}{" "}
               {inputSymbol}
             </span>

@@ -1,6 +1,21 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import type { Address } from "viem";
+import { formatUnits, type Address } from "viem";
+
+const vnNumberFormat = new Intl.NumberFormat("vi-VN")
+
+// VND-like: no decimals, Vietnamese thousand separators → "5.000.000"
+export function formatVndBalance(value: bigint, decimals = 18): string {
+  const whole = value / BigInt(10 ** decimals)
+  return vnNumberFormat.format(whole)
+}
+
+// ETH-like: Vietnamese thousand separators + comma decimal, full precision → "1.234,5678901234567890"
+export function formatEthBalance(value: bigint, decimals = 18): string {
+  const [whole, frac = ""] = formatUnits(value, decimals).split(".")
+  const wholeFormatted = vnNumberFormat.format(BigInt(whole))
+  return frac ? `${wholeFormatted},${frac}` : wholeFormatted
+}
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

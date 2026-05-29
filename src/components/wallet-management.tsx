@@ -1,12 +1,13 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useAtom, useSetAtom, useAtomValue } from "jotai"
-import { Plus, LoaderCircle, Check, LogOut, LogIn, ShieldCheck, ShieldAlert, Coins } from "lucide-react"
+import { Plus, LoaderCircle, Check, X, LogOut, LogIn, ShieldCheck, ShieldAlert, Coins } from "lucide-react"
 import { REGEXP_ONLY_DIGITS } from "input-otp"
 import { Bytes, Keystore, Mnemonic } from "ox"
 import { mnemonicToAccount } from "viem/accounts"
-import { createPublicClient, createWalletClient, http, getAddress, type Address } from "viem"
+import { createWalletClient, http, getAddress, type Address, type PublicClient, type WalletClient, type Transport, type Chain, type Account as ViemAccount } from "viem"
 import { arbitrumSepolia } from "viem/chains"
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { usePublicClient, useBytecode } from "wagmi"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { walletsAtom } from "@/atoms/walletsAtom"
 import { activeWalletAtom } from "@/atoms/activeWalletAtom"
 import { passwordAtom } from "@/atoms/passwordAtom"
@@ -38,165 +39,87 @@ const apiBase = import.meta.env.VITE_ZXSTIM_API || "http://localhost:8001"
 const MOCK_ETH = "0x3890f8Fb0F7aa237e03E995CFe7282fdb519F95a" as Address
 const MOCK_VND = "0x46DEA9Be3165024CC358Fa24798458e62BFC1d57" as Address
 
-type ClaimStatus = "idle" | "claiming" | "success" | "error"
+type LocalWalletClient = WalletClient<Transport, Chain, ViemAccount>
 
-function useClaimTokens(wallet: UmKeystore | null, password: string | null) {
-  const mutation = useMutation({
-    mutationFn: async () => {
-      if (!wallet || !password) throw new Error("No wallet or password")
-      const account = decryptWalletToAccount(wallet, password)
-      const walletClient = createWalletClient({
-        account,
-        chain: arbitrumSepolia,
-        transport: http(rpcUrl),
-      })
+// ──────────────────────────────────────────────────────────────────────────
+// Standalone async helpers — clients are injected by the caller, no
+// `createWalletClient`/`createPublicClient` inside.
+// ──────────────────────────────────────────────────────────────────────────
 
-      const requester = getAddress(account.address)
-      const tokens = [getAddress(MOCK_ETH), getAddress(MOCK_VND)]
-      const nonce = Date.now()
+function is7702Delegated(code: `0x${string}` | undefined): boolean {
+  const expectedPrefix = "0xef0100" + DELEGATE_CONTRACT.slice(2).toLowerCase()
+  return code?.toLowerCase().startsWith(expectedPrefix) ?? false
+}
 
-      const message = [
-        "zxstim-api claim mock-tokens",
-        `requester: ${requester}`,
-        `tokens: ${tokens.join(",")}`,
-        `nonce: ${nonce}`,
-      ].join("\n")
+async function delegateAccount(
+  publicClient: PublicClient,
+  walletClient: LocalWalletClient,
+): Promise<`0x${string}`> {
+  const account = walletClient.account
 
-      console.log("[claim] message:", JSON.stringify(message))
-      console.log("[claim] body:", { requester, tokens, nonce })
-
-      const signature = await walletClient.signMessage({ account, message })
-
-      const res = await fetch(`${apiBase}/claim/mock-tokens`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requester, tokens, nonce, signature }),
-      })
-      const result = await res.json()
-      console.log("[claim] response:", res.status, result)
-      if (!res.ok) throw new Error(result.error || "Claim failed")
-      return result.transfers
-    },
+  const authorization = await walletClient.signAuthorization({
+    account,
+    contractAddress: DELEGATE_CONTRACT,
+    chainId: arbitrumSepolia.id,
+    nonce: await publicClient.getTransactionCount({ address: account.address }),
   })
 
-  // Auto-reset after success/error so the button returns to idle
-  useEffect(() => {
-    if (mutation.isSuccess) {
-      const t = setTimeout(() => mutation.reset(), 2000)
-      return () => clearTimeout(t)
-    }
-    if (mutation.isError) {
-      const t = setTimeout(() => mutation.reset(), 3000)
-      return () => clearTimeout(t)
-    }
-  }, [mutation.isSuccess, mutation.isError, mutation])
+  const res = await fetch(`${apiBase}/delegate/arbitrum-sepolia`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      authorization: {
+        address: authorization.address,
+        chainId: authorization.chainId,
+        nonce: authorization.nonce,
+        r: authorization.r,
+        s: authorization.s,
+        yParity: authorization.yParity,
+      },
+      authority: account.address,
+    }),
+  })
+  const result = await res.json()
+  if (!res.ok) throw new Error(result.error || "Delegation failed")
 
-  const status: ClaimStatus = mutation.isPending
-    ? "claiming"
-    : mutation.isSuccess
-      ? "success"
-      : mutation.isError
-        ? "error"
-        : "idle"
+  await publicClient.waitForTransactionReceipt({ hash: result.transactionHash })
+  return result.transactionHash as `0x${string}`
+}
 
-  return {
-    status,
-    error: mutation.error?.message,
-    claim: () => mutation.mutate(),
-  }
+async function claimMockTokens(walletClient: LocalWalletClient) {
+  const account = walletClient.account
+  const requester = getAddress(account.address)
+  const tokens = [getAddress(MOCK_ETH), getAddress(MOCK_VND)]
+  const nonce = Date.now()
+
+  const message = [
+    "zxstim-api claim mock-tokens",
+    `requester: ${requester}`,
+    `tokens: ${tokens.join(",")}`,
+    `nonce: ${nonce}`,
+  ].join("\n")
+
+  const signature = await walletClient.signMessage({ account, message })
+
+  const res = await fetch(`${apiBase}/claim/mock-tokens`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requester, tokens, nonce, signature }),
+  })
+  const result = await res.json()
+  if (!res.ok) throw new Error(result.error || "Claim failed")
+  return result.transfers
 }
 
 function truncateAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// UI
+// ──────────────────────────────────────────────────────────────────────────
+
 type DelegationStatus = "checking" | "delegating" | "delegated" | "not-delegated" | "error"
-
-function useDelegation(wallet: UmKeystore | null, password: string | null) {
-  const { data: isDelegated, isPending: isChecking, refetch: refetchDelegation } = useQuery({
-    queryKey: ["delegation", wallet?.address],
-    queryFn: async () => {
-      if (!wallet?.address) return false
-      const publicClient = createPublicClient({
-        chain: arbitrumSepolia,
-        transport: http(rpcUrl),
-      })
-      const code = await publicClient.getCode({ address: wallet.address as Address })
-      const expectedPrefix = "0xef0100" + DELEGATE_CONTRACT.slice(2).toLowerCase()
-      return code?.toLowerCase().startsWith(expectedPrefix) ?? false
-    },
-    enabled: !!wallet?.address,
-    staleTime: 30_000,
-  })
-
-  const mutation = useMutation({
-    mutationFn: async () => {
-      if (!wallet || !password) throw new Error("No wallet or password")
-      const account = decryptWalletToAccount(wallet, password)
-      const walletClient = createWalletClient({
-        account,
-        chain: arbitrumSepolia,
-        transport: http(rpcUrl),
-      })
-      const publicClient = createPublicClient({
-        chain: arbitrumSepolia,
-        transport: http(rpcUrl),
-      })
-
-      const authorization = await walletClient.signAuthorization({
-        account,
-        contractAddress: DELEGATE_CONTRACT,
-        chainId: 421614,
-        nonce: await publicClient.getTransactionCount({ address: account.address }),
-      })
-
-      const res = await fetch(`${apiBase}/delegate/arbitrum-sepolia`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          authorization: {
-            address: authorization.address,
-            chainId: authorization.chainId,
-            nonce: authorization.nonce,
-            r: authorization.r,
-            s: authorization.s,
-            yParity: authorization.yParity,
-          },
-          authority: account.address,
-        }),
-      })
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.error || "Delegation failed")
-
-      await publicClient.waitForTransactionReceipt({ hash: result.transactionHash })
-      return result.transactionHash as string
-    },
-    onSuccess: () => refetchDelegation(),
-  })
-
-  // Auto-delegate on login when not delegated
-  useEffect(() => {
-    if (!wallet?.address || !password) return
-    if (isChecking || isDelegated || mutation.isPending) return
-    if (isDelegated === false) mutation.mutate()
-  }, [wallet?.address, password, isDelegated, isChecking, mutation])
-
-  const status: DelegationStatus = isChecking
-    ? "checking"
-    : mutation.isPending
-      ? "delegating"
-      : mutation.isError
-        ? "error"
-        : isDelegated
-          ? "delegated"
-          : "not-delegated"
-
-  return {
-    status,
-    error: mutation.error?.message,
-    delegate: () => mutation.mutate(),
-  }
-}
 
 function DelegationBadge({ status, error, onRetry }: {
   status: DelegationStatus
@@ -236,24 +159,30 @@ function DelegationBadge({ status, error, onRetry }: {
   return null
 }
 
-type CreateState = "idle" | "loading" | "done"
+type CreateState = "idle" | "creating" | "delegating" | "done" | "error"
 
 function CreateWalletDialog() {
   const [, setWallets] = useAtom(walletsAtom)
   const setActiveWallet = useSetAtom(activeWalletAtom)
   const setPassword = useSetAtom(passwordAtom)
+  const publicClient = usePublicClient({ chainId: arbitrumSepolia.id })
   const [otp, setOtp] = useState("")
   const [createState, setCreateState] = useState<CreateState>("idle")
+  const [error, setError] = useState<string>()
   const [open, setOpen] = useState(false)
 
-  function handleCreate() {
+  async function handleCreate() {
     if (otp.length !== 6 || createState !== "idle") return
+    if (!publicClient) return
 
-    setCreateState("loading")
+    setError(undefined)
+    setCreateState("creating")
 
-    setTimeout(() => {
+    try {
+      // 1. Generate wallet
       const mnemonic = Mnemonic.random(Mnemonic.english)
-      const address = mnemonicToAccount(mnemonic).address
+      const account = mnemonicToAccount(mnemonic)
+      const address = account.address
       const mnemonicBytes = Bytes.fromString(mnemonic)
       const [key, opts] = Keystore.pbkdf2({ password: otp })
       const encrypted = Keystore.encrypt(mnemonicBytes, key, opts)
@@ -270,8 +199,17 @@ function CreateWalletDialog() {
         address,
       } as UmKeystore
 
-      setCreateState("done")
+      // 2. Build wallet client bound to the newly-generated account, then delegate
+      setCreateState("delegating")
+      const walletClient = createWalletClient({
+        account,
+        chain: arbitrumSepolia,
+        transport: http(rpcUrl),
+      })
+      await delegateAccount(publicClient, walletClient)
 
+      // 3. Persist + activate
+      setCreateState("done")
       setTimeout(() => {
         setOpen(false)
         setWallets((prev) => [...prev, walletData])
@@ -280,11 +218,17 @@ function CreateWalletDialog() {
         setOtp("")
         setCreateState("idle")
       }, 1000)
-    }, 2000)
+    } catch (e) {
+      console.error("[create-wallet] failed:", e)
+      setError(e instanceof Error ? e.message : "Wallet creation failed")
+      setCreateState("error")
+    }
   }
 
+  const isBusy = createState === "creating" || createState === "delegating"
+
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (createState === "idle") setOpen(o) }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!isBusy) setOpen(o) }}>
       <DialogTrigger
         render={
           <Button variant="default" size="sm">
@@ -301,7 +245,7 @@ function CreateWalletDialog() {
           </DialogDescription>
         </DialogHeader>
         <div className="flex justify-center py-4">
-          <InputOTP maxLength={6} pattern={REGEXP_ONLY_DIGITS} value={otp} onChange={setOtp} disabled={createState !== "idle"}>
+          <InputOTP maxLength={6} pattern={REGEXP_ONLY_DIGITS} value={otp} onChange={setOtp} disabled={isBusy || createState === "done"}>
             <InputOTPGroup>
               <InputOTPSlot index={0} />
               <InputOTPSlot index={1} />
@@ -312,18 +256,28 @@ function CreateWalletDialog() {
             </InputOTPGroup>
           </InputOTP>
         </div>
+        {createState === "creating" && (
+          <p className="text-xs text-muted-foreground text-center">Đang tạo ví...</p>
+        )}
+        {createState === "delegating" && (
+          <p className="text-xs text-muted-foreground text-center">Đang thiết lập tài trợ...</p>
+        )}
+        {createState === "error" && error && (
+          <p className="text-xs text-red-500 text-center break-words">{error}</p>
+        )}
         <DialogFooter>
           <div className="flex flex-row justify-between w-full">
-            <Button variant="outline" disabled={createState !== "idle"} onClick={() => setOpen(false)}>Huỷ</Button>
+            <Button variant="outline" disabled={isBusy} onClick={() => setOpen(false)}>Huỷ</Button>
             <Button
               type="button"
               onClick={handleCreate}
-              disabled={createState !== "idle"}
+              disabled={isBusy || createState === "done"}
               className={createState === "done" ? "bg-[#2ebd85] hover:bg-[#2ebd85]" : ""}
             >
-              {createState === "loading" && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
+              {isBusy && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
               {createState === "done" && <Check className="text-primary-foreground" data-icon="inline-start" />}
-              {createState === "idle" && "Tạo"}
+              {createState === "error" && <X className="text-primary-foreground" data-icon="inline-start" />}
+              {(createState === "idle" || createState === "error") && "Tạo"}
             </Button>
           </div>
         </DialogFooter>
@@ -391,13 +345,73 @@ function WalletInfoDialog({ wallet }: { wallet: UmKeystore }) {
   const setActiveWallet = useSetAtom(activeWalletAtom)
   const setPassword = useSetAtom(passwordAtom)
   const password = useAtomValue(passwordAtom)
+  const publicClient = usePublicClient({ chainId: arbitrumSepolia.id })
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
-  const { status, error, delegate } = useDelegation(wallet, password)
-  const { status: claimStatus, error: claimError, claim } = useClaimTokens(wallet, password)
+
+  // Decrypt account once when the password is available and build the wallet client.
+  const walletClient = useMemo<LocalWalletClient | undefined>(() => {
+    if (!password) return undefined
+    return createWalletClient({
+      account: decryptWalletToAccount(wallet, password),
+      chain: arbitrumSepolia,
+      transport: http(rpcUrl),
+    })
+  }, [wallet, password])
+
+  const {
+    data: code,
+    isPending: isChecking,
+    queryKey: bytecodeQueryKey,
+  } = useBytecode({
+    address: wallet.address as Address,
+    chainId: arbitrumSepolia.id,
+  })
+  const isDelegated = is7702Delegated(code)
+
+  const delegateMutation = useMutation({
+    mutationFn: () => {
+      if (!publicClient || !walletClient) throw new Error("Clients not available")
+      return delegateAccount(publicClient, walletClient)
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: bytecodeQueryKey }),
+  })
+
+  const claimMutation = useMutation({
+    mutationFn: () => {
+      if (!walletClient) throw new Error("Wallet client not available")
+      return claimMockTokens(walletClient)
+    },
+  })
+
+  // Auto-reset claim mutation status so the button returns to idle
+  useEffect(() => {
+    if (claimMutation.isSuccess) {
+      const t = setTimeout(() => claimMutation.reset(), 2000)
+      return () => clearTimeout(t)
+    }
+    if (claimMutation.isError) {
+      const t = setTimeout(() => claimMutation.reset(), 3000)
+      return () => clearTimeout(t)
+    }
+  }, [claimMutation.isSuccess, claimMutation.isError, claimMutation])
+
+  const handleDelegate = () => delegateMutation.mutate()
+  const handleClaim = () => claimMutation.mutate()
+
+  const delegationStatus: DelegationStatus = isChecking
+    ? "checking"
+    : delegateMutation.isPending
+      ? "delegating"
+      : delegateMutation.isError
+        ? "error"
+        : isDelegated
+          ? "delegated"
+          : "not-delegated"
 
   return (
     <div className="flex items-center gap-2">
-      <DelegationBadge status={status} error={error} onRetry={delegate} />
+      <DelegationBadge status={delegationStatus} error={delegateMutation.error?.message} onRetry={handleDelegate} />
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger
           render={
@@ -419,36 +433,36 @@ function WalletInfoDialog({ wallet }: { wallet: UmKeystore }) {
           </div>
           <div className="flex items-center justify-between rounded border px-3 py-2">
             <span className="text-sm text-muted-foreground">EIP-7702</span>
-            <DelegationBadge status={status} error={error} onRetry={delegate} />
+            <DelegationBadge status={delegationStatus} error={delegateMutation.error?.message} onRetry={handleDelegate} />
           </div>
           <Button
             variant="outline"
             className="w-full"
-            disabled={status === "delegating"}
-            onClick={delegate}
+            disabled={delegateMutation.isPending}
+            onClick={handleDelegate}
           >
-            {status === "delegating" ? (
+            {delegateMutation.isPending ? (
               <LoaderCircle className="size-4 animate-spin" />
             ) : (
               <>
                 <ShieldCheck className="size-4" data-icon="inline-start" />
-                {status === "delegated" ? "Re-delegate" : "Delegate"}
+                {isDelegated ? "Re-delegate" : "Delegate"}
               </>
             )}
           </Button>
           <Button
             variant="outline"
             className="w-full"
-            disabled={claimStatus === "claiming"}
-            onClick={claim}
-            title={claimError}
+            disabled={claimMutation.isPending}
+            onClick={handleClaim}
+            title={claimMutation.error?.message}
           >
-            {claimStatus === "claiming" && <LoaderCircle className="size-4 animate-spin" />}
-            {claimStatus === "success" && <Check className="size-4 text-[#2ebd85]" />}
-            {(claimStatus === "idle" || claimStatus === "error") && (
+            {claimMutation.isPending && <LoaderCircle className="size-4 animate-spin" />}
+            {claimMutation.isSuccess && <Check className="size-4 text-[#2ebd85]" />}
+            {!claimMutation.isPending && !claimMutation.isSuccess && (
               <>
                 <Coins className="size-4" data-icon="inline-start" />
-                {claimStatus === "error" ? "Claim failed — retry" : "Claim mock ETH + VND"}
+                {claimMutation.isError ? "Claim failed — retry" : "Claim mock ETH + VND"}
               </>
             )}
           </Button>

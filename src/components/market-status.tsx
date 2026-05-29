@@ -1,10 +1,9 @@
 import { useEffect, useRef } from "react"
-import { formatUnits } from "viem"
 import { useQueryClient, useQuery } from "@tanstack/react-query"
 import { useAtomValue } from "jotai"
 import { activeWalletAtom } from "@/atoms/activeWalletAtom"
 import type { UmKeystore } from "@/types/wallet"
-import { cn } from "@/lib/utils"
+import { cn, formatEthBalance } from "@/lib/utils"
 
 const POOL_ID =
   "0x363251ac1864e05ea6f839785a02ccaef52cd97f9e2b4516a4c47b638efb4257"
@@ -134,23 +133,30 @@ function useSwapStream(poolId: string, filterAddress?: string) {
   return { allSwaps: allSwaps ?? [], mySwaps: mySwaps ?? [] }
 }
 
+const priceFormat = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 })
+const timeFormat = new Intl.DateTimeFormat("vi-VN", {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+})
+
 function SwapRow({ swap }: { swap: SwapEvent }) {
   const amount0 = BigInt(swap.amount0)
   // amount0 > 0 means ETH (currency0) leaves the pool to the user = user is BUYING ETH
   const isBuy = amount0 > 0n
   const ethAmount = amount0 < 0n ? -amount0 : amount0
-  const time = new Date(swap.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
 
   return (
-    <div className="grid grid-cols-3 py-1 text-xs font-mono">
+    <div className="grid grid-cols-3 py-1 text-[10px] font-mono">
       <span className={cn(isBuy ? "text-[#2ebd85]" : "text-[#f6465d]")}>
-        {swap.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+        {priceFormat.format(swap.price)}
       </span>
       <span className="text-right">
-        {Number(formatUnits(ethAmount, 18)).toFixed(4)}
+        {formatEthBalance(ethAmount)}
       </span>
       <span className="text-right text-muted-foreground">
-        {time}
+        {timeFormat.format(swap.timestamp)}
       </span>
     </div>
   )

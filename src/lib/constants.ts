@@ -1,26 +1,8 @@
-import { Token, ChainId } from '@uniswap/sdk-core'
-
-export const DEFIVN_WALLET_ADDRESS = "0xEf44d56d75E86FAF8688B8509d41d791d7548EFB"
-
-export const USDC_TOKEN = new Token(
-    ChainId.UNICHAIN_SEPOLIA,
-    "0x9dc8CF43251dB981C46C4525866b49F8E0483826",
-    18,
-    "USDC",
-    "USD Coin"
-)
-export const ETH_TOKEN = new Token(
-    ChainId.UNICHAIN_SEPOLIA,
-    "0x0CeDd311b97A05caEdd2B16c85b08a48966a18e3",
-    18,
-    "ETH",
-    "Ether"
-)
+import type { Address } from "viem"
 
 export const QUOTER_CONTRACT_ADDRESS = "0x56dcd40a3f2d466f48e7f48bdbe5cc9b92ae4472"
-
 export const UNIVERSAL_ROUTER_ADDRESS = "0xf70536b3bcc1bd1a972dc186a2cf84cc6da6be5d"
-
 export const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
-
 export const BATCH_CALL_AND_SPONSOR_CONTRACT_ADDRESS = "0xBC88C078bf2e0ECeF6F235Df065E7600E95F27F5";
+export const MOCK_ETH_CONTRACT_ADDRESS = "0x3890f8Fb0F7aa237e03E995CFe7282fdb519F95a" as Address
+export const MOCK_VND_CONTRACT_ADDRESS = "0x46DEA9Be3165024CC358Fa24798458e62BFC1d57" as Address
