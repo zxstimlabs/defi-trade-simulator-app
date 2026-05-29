@@ -198,14 +198,14 @@ function OrderPanel({
   const buttonLabel = (() => {
     if (swapState === "pending") return null
     if (swapState === "success") return null
-    if (swapState === "error") return side === "buy" ? "Buy ETH" : "Sell ETH"
-    return side === "buy" ? "Buy ETH" : "Sell ETH"
+    if (swapState === "error") return side === "buy" ? "Mua ETH" : "Bán ETH"
+    return side === "buy" ? "Mua ETH" : "Bán ETH"
   })()
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center border border-muted-foreground/30 px-3 py-2">
-        <span className="text-xs text-muted-foreground mr-2">Amount</span>
+        <span className="text-xs text-muted-foreground mr-2">Khối lượng</span>
         <input
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
@@ -218,7 +218,7 @@ function OrderPanel({
 
       <div className="flex flex-col gap-1 text-xs">
         <div className="flex justify-between items-center">
-          <span className="text-yellow-500">Available</span>
+          <span className="text-yellow-500">Số dư</span>
           <div className="flex items-center gap-1.5">
             <span>
               {isBalancesLoading ? (

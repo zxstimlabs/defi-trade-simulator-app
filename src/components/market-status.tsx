@@ -61,13 +61,19 @@ function useSwapStream(poolId: string, filterAddress?: string) {
 
   const { data: mySwaps } = useQuery<SwapEvent[]>({
     queryKey: mySwapsKey,
-    queryFn: () => {
-      const all = queryClient.getQueryData<SwapEvent[]>(allSwapsKey) ?? []
+    queryFn: async () => {
       if (!filterAddress) return []
-      return all.filter((s) => s.userAddress.toLowerCase() === filterAddress.toLowerCase())
+      const res = await fetch(`${API_BASE}/pools/${poolId}/users/${filterAddress}/swaps?limit=100`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || "Failed to fetch user swaps")
+      // API returns newest-first already; dedupe just in case of WS race
+      return dedupeAndSort(json.swaps ?? [])
     },
     staleTime: Infinity,
+    refetchOnWindowFocus: false,
     enabled: !!filterAddress,
+    retry: 5,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
   })
 
   useEffect(() => {
@@ -178,11 +184,11 @@ function TradeSection({
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-bold">{title}</h3>
       </div>
-      <div className="border-b-2 border-yellow-500 w-12 mb-2" />
+      <div className="border-b-2 border-primary w-12 mb-2" />
       <div className="grid grid-cols-3 text-xs text-muted-foreground pb-1">
-        <span>Price (VND)</span>
-        <span className="text-right">Amount (ETH)</span>
-        <span className="text-right">Time</span>
+        <span>Giá (VND)</span>
+        <span className="text-right">Khối lượng (ETH)</span>
+        <span className="text-right">Thời gian</span>
       </div>
       <div className="flex-1 overflow-y-auto min-h-0">
         {swaps.length === 0 ? (
@@ -204,13 +210,13 @@ export default function MarketStatus() {
   return (
     <div className="flex flex-col gap-0 h-full">
       <TradeSection
-        title="Market Trades"
+        title="Giao dịch gần nhất"
         swaps={allSwaps}
         emptyMessage="No trades yet"
         className="flex-1 border border-muted-foreground/10 p-3"
       />
       <TradeSection
-        title="My Trades"
+        title="Giao dịch của tôi"
         swaps={mySwaps}
         emptyMessage={activeWallet ? "No trades yet" : "Connect wallet to see your trades"}
         className="flex-1 border border-muted-foreground/10 border-t-0 p-3"
