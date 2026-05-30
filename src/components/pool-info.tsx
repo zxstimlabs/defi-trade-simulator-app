@@ -5,7 +5,7 @@ import { useAtomValue } from "jotai"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn, formatEthBalance, formatVndBalance } from "@/lib/utils"
 import { POOL_ID } from "@/lib/constants"
-import { poolStateAtom } from "@/atoms/poolSnapshotAtoms"
+import { poolStateAtom, pollStatusAtom } from "@/atoms/poolSnapshotAtoms"
 
 const EXPLORER_URL = arbitrumSepolia.blockExplorers.default.url
 
@@ -68,6 +68,43 @@ export default function PoolInfo() {
         Number(formatUnits(reserve1, decimals1))
       : undefined
 
+  // Live-feed heartbeat: lastSuccessAt advances on every successful 1s poll, so
+  // a stalled feed shows up here as the dot/label going amber then red.
+  const { lastSuccessAt, isError } = useAtomValue(pollStatusAtom)
+  const [nowTs, setNowTs] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNowTs(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+  const ageMs = lastSuccessAt != null ? nowTs - lastSuccessAt : null
+  const ageSec = Math.max(0, Math.round((ageMs ?? 0) / 1000))
+  const feedStatus: "connecting" | "live" | "lagging" | "down" =
+    lastSuccessAt == null
+      ? "connecting"
+      : isError || (ageMs ?? 0) >= 5000
+        ? "down"
+        : (ageMs ?? 0) >= 3000
+          ? "lagging"
+          : "live"
+  const feedDot = {
+    connecting: "bg-yellow-500 animate-pulse",
+    live: "bg-[#2ebd85] animate-pulse",
+    lagging: "bg-yellow-500",
+    down: "bg-[#f6465d]",
+  }[feedStatus]
+  const feedText =
+    feedStatus === "down"
+      ? "text-[#f6465d]"
+      : feedStatus === "lagging"
+        ? "text-yellow-500"
+        : "text-muted-foreground"
+  const feedLabel = {
+    connecting: "Đang kết nối…",
+    live: "Trực tiếp",
+    lagging: `Chậm · ${ageSec}s`,
+    down: `Mất kết nối · ${ageSec}s`,
+  }[feedStatus]
+
   if (!pool) {
     return (
       <div className="flex flex-col gap-3 rounded-md border border-muted-foreground/10 p-4">
@@ -84,8 +121,8 @@ export default function PoolInfo() {
           {symbol0}/{symbol1}
         </h2>
         <div className="flex items-center gap-1.5">
-          <span className={`size-1.5 rounded-full ${pool ? "bg-[#2ebd85]" : "bg-yellow-500 animate-pulse"}`} />
-          <span className="text-xs text-muted-foreground">thử nghiệm</span>
+          <span className={cn("size-1.5 rounded-full", feedDot)} />
+          <span className={cn("text-xs", feedText)}>{feedLabel}</span>
         </div>
       </div>
 
