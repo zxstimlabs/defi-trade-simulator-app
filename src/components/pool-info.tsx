@@ -1,63 +1,16 @@
 import { useEffect, useRef, useState } from "react"
 import { formatUnits, type Address } from "viem"
 import { arbitrumSepolia } from "viem/chains"
-import { useQueryClient, useQuery } from "@tanstack/react-query"
+import { useAtomValue } from "jotai"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn, formatEthBalance, formatVndBalance } from "@/lib/utils"
-import { POOL_ID, API_BASE } from "@/lib/constants"
+import { POOL_ID } from "@/lib/constants"
+import { poolStateAtom } from "@/atoms/poolSnapshotAtoms"
 
 const EXPLORER_URL = arbitrumSepolia.blockExplorers.default.url
-import { usePoolMessage } from "@/hooks/use-pool-socket"
 
 const CURRENCY0 = "0x3890f8Fb0F7aa237e03E995CFe7282fdb519F95a" as Address
 const CURRENCY1 = "0x46DEA9Be3165024CC358Fa24798458e62BFC1d57" as Address
-
-interface PoolState {
-  currency0Symbol: string
-  currency1Symbol: string
-  currency0Decimals: number
-  currency1Decimals: number
-  sqrtPriceX96: string
-  tick: number
-  protocolFee: number
-  lpFee: number
-  liquidity: string
-  feeGrowthGlobal0X128: string
-  feeGrowthGlobal1X128: string
-  reserve0: string
-  reserve1: string
-  blockNumber: string
-  updatedAt: number
-}
-
-function usePoolStream(poolId: string) {
-  const queryClient = useQueryClient()
-
-  const queryKey = ["pool", poolId]
-
-  const { data: pool, status } = useQuery<PoolState>({
-    queryKey,
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE}/pools/${poolId}`)
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || "Tải dữ liệu thất bại")
-      return json.pool
-    },
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
-    // Server returns 503 briefly during indexer boot — retry a few times with backoff
-    retry: 5,
-    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
-  })
-
-  usePoolMessage((msg) => {
-    if (msg.type === "pool_state") {
-      queryClient.setQueryData(["pool", poolId], msg.data)
-    }
-  })
-
-  return { pool: pool ?? null, isLoading: status === "pending", isError: status === "error" }
-}
 
 // Price of 1 token0 (ETH) expressed in token1 (VND), in human units.
 function priceToken0InToken1(sqrtPriceX96: bigint, decimals0: number, decimals1: number): number {
@@ -75,7 +28,8 @@ function truncateAddress(address: string): string {
 }
 
 export default function PoolInfo() {
-  const { pool, isLoading, isError } = usePoolStream(POOL_ID)
+  const pool = useAtomValue(poolStateAtom)
+  const isLoading = pool == null
   const symbol0 = pool?.currency0Symbol || "mETH"
   const symbol1 = pool?.currency1Symbol || "mVND"
   const decimals0 = pool?.currency0Decimals ?? 18
@@ -114,7 +68,7 @@ export default function PoolInfo() {
         Number(formatUnits(reserve1, decimals1))
       : undefined
 
-  if (isError || (!isLoading && !pool)) {
+  if (!pool) {
     return (
       <div className="flex flex-col gap-3 rounded-md border border-muted-foreground/10 p-4">
         <h2 className="text-sm font-semibold">ETH/VND Pool</h2>

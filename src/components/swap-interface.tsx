@@ -179,13 +179,17 @@ function OrderPanel({
     onSuccess: () => onRefreshBalances(),
   })
 
-  // Auto-reset after success/error so the button returns to idle
+  // Auto-reset after success/error so the button returns to idle.
+  // Depend on the stable bits only — `swapMutation` is a fresh object every
+  // render, so including it would re-arm (and clear) the timer on every
+  // re-render (e.g. the 1s pool poll), and it would never fire.
+  const { isSuccess, isError, reset } = swapMutation
   useEffect(() => {
-    if (swapMutation.isSuccess || swapMutation.isError) {
-      const t = setTimeout(() => swapMutation.reset(), 2000)
+    if (isSuccess || isError) {
+      const t = setTimeout(() => reset(), 1000)
       return () => clearTimeout(t)
     }
-  }, [swapMutation.isSuccess, swapMutation.isError, swapMutation])
+  }, [isSuccess, isError, reset])
 
   const swapState: SwapState = swapMutation.isPending
     ? "pending"

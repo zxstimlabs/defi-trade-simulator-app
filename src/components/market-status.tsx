@@ -1,27 +1,12 @@
-import { useQueryClient, useQuery } from "@tanstack/react-query"
+import { useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { useAtomValue } from "jotai"
 import { activeWalletAtom } from "@/atoms/activeWalletAtom"
 import type { UmKeystore } from "@/types/wallet"
 import { cn, formatEthBalance } from "@/lib/utils"
 import { POOL_ID, API_BASE } from "@/lib/constants"
-import { usePoolMessage } from "@/hooks/use-pool-socket"
-
-interface SwapEvent {
-  poolId: string
-  sender: string
-  userAddress: string
-  amount0: string
-  amount1: string
-  sqrtPriceX96: string
-  liquidity: string
-  tick: number
-  fee: number
-  price: number
-  transactionHash: string
-  blockNumber: string
-  blockTimestamp: number
-  timestamp: number
-}
+import { recentSwapsAtom } from "@/atoms/poolSnapshotAtoms"
+import type { SwapEvent } from "@/types/pool"
 
 function dedupeAndSort(swaps: SwapEvent[]): SwapEvent[] {
   const seen = new Map<string, SwapEvent>()
@@ -29,37 +14,20 @@ function dedupeAndSort(swaps: SwapEvent[]): SwapEvent[] {
   return [...seen.values()].sort((a, b) => b.timestamp - a.timestamp)
 }
 
-function useSwapStream(poolId: string, filterAddress?: string) {
-  const queryClient = useQueryClient()
+function useSwapStream(filterAddress?: string) {
+  // All recent swaps come from the shared 1s poll (oldest-first, capped 50).
+  const recentSwaps = useAtomValue(recentSwapsAtom)
+  const allSwaps = useMemo(() => dedupeAndSort(recentSwaps), [recentSwaps])
 
-  const allSwapsKey = ["swaps", poolId, "all"]
-  const mySwapsKey = ["swaps", poolId, filterAddress ?? "none"]
-
-  const { data: allSwaps } = useQuery<SwapEvent[]>({
-    queryKey: allSwapsKey,
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE}/pools/${poolId}`)
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || "Failed to fetch")
-      // REST returns oldest-first; flip for newest-first display
-      const swaps: SwapEvent[] = json.recentSwaps ?? []
-      return dedupeAndSort(swaps)
-    },
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
-    // Server returns 503 briefly during indexer boot
-    retry: 5,
-    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
-  })
-
-  const { data: mySwaps } = useQuery<SwapEvent[]>({
-    queryKey: mySwapsKey,
+  // The user's fuller history (up to 100) comes from the DB-backed REST
+  // endpoint; live swaps from the poll are merged on top.
+  const { data: mySeed } = useQuery<SwapEvent[]>({
+    queryKey: ["userSwaps", POOL_ID, filterAddress ?? "none"],
     queryFn: async () => {
       if (!filterAddress) return []
-      const res = await fetch(`${API_BASE}/pools/${poolId}/users/${filterAddress}/swaps?limit=100`)
+      const res = await fetch(`${API_BASE}/pools/${POOL_ID}/users/${filterAddress}/swaps?limit=100`)
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || "Failed to fetch user swaps")
-      // API returns newest-first already; dedupe just in case of WS race
       return dedupeAndSort(json.swaps ?? [])
     },
     staleTime: Infinity,
@@ -69,36 +37,14 @@ function useSwapStream(poolId: string, filterAddress?: string) {
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
   })
 
-  usePoolMessage((msg) => {
-    if (msg.type === "swap") {
-      const swap = msg.data as SwapEvent
-      queryClient.setQueryData<SwapEvent[]>(allSwapsKey, (prev) => {
-        if ((prev ?? []).some((s) => s.transactionHash === swap.transactionHash)) {
-          return prev ?? []
-        }
-        return [swap, ...(prev ?? [])].slice(0, 100)
-      })
-      if (filterAddress && swap.userAddress.toLowerCase() === filterAddress.toLowerCase()) {
-        queryClient.setQueryData<SwapEvent[]>(mySwapsKey, (prev) => {
-          if ((prev ?? []).some((s) => s.transactionHash === swap.transactionHash)) {
-            return prev ?? []
-          }
-          return [swap, ...(prev ?? [])].slice(0, 100)
-        })
-      }
-    } else if (msg.type === "recent_swaps") {
-      const deduped = dedupeAndSort(msg.data as SwapEvent[])
-      queryClient.setQueryData(allSwapsKey, deduped)
-      if (filterAddress) {
-        queryClient.setQueryData(
-          mySwapsKey,
-          deduped.filter((s) => s.userAddress.toLowerCase() === filterAddress.toLowerCase())
-        )
-      }
-    }
-  })
+  const mySwaps = useMemo(() => {
+    if (!filterAddress) return []
+    const lower = filterAddress.toLowerCase()
+    const liveMine = recentSwaps.filter((s) => s.userAddress.toLowerCase() === lower)
+    return dedupeAndSort([...liveMine, ...(mySeed ?? [])])
+  }, [recentSwaps, mySeed, filterAddress])
 
-  return { allSwaps: allSwaps ?? [], mySwaps: mySwaps ?? [] }
+  return { allSwaps, mySwaps }
 }
 
 const priceFormat = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 })
@@ -167,7 +113,7 @@ function TradeSection({
 
 export default function MarketStatus() {
   const activeWallet = useAtomValue<UmKeystore | null>(activeWalletAtom)
-  const { allSwaps, mySwaps } = useSwapStream(POOL_ID, activeWallet?.address)
+  const { allSwaps, mySwaps } = useSwapStream(activeWallet?.address)
 
   return (
     <div className="flex flex-col gap-0 h-full">

@@ -131,7 +131,6 @@ function DelegationBadge({ status, error, onRetry }: {
     return (
       <span className="flex items-center gap-1 text-xs text-[#2ebd85]">
         <ShieldCheck className="size-3" />
-        7702
       </span>
     )
   }

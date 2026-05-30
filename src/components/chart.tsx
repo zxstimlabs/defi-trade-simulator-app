@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import {
   CandlestickSeries,
   Chart as LWChart,
@@ -6,11 +6,13 @@ import {
   TimeScaleFitContentTrigger,
 } from "lightweight-charts-react-components"
 import type { CandlestickData, UTCTimestamp } from "lightweight-charts"
-import { useQueryClient, useQuery } from "@tanstack/react-query"
+import { useAtomValue } from "jotai"
+import { useQuery } from "@tanstack/react-query"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { POOL_ID, API_BASE } from "@/lib/constants"
-import { usePoolMessage } from "@/hooks/use-pool-socket"
+import { recentSwapsAtom } from "@/atoms/poolSnapshotAtoms"
+import { type SwapEvent } from "@/types/pool"
 
 const COLORS = {
   green: "#2ebd85",
@@ -60,15 +62,6 @@ interface ApiCandle {
   n: number
 }
 
-interface SwapEvent {
-  poolId: string
-  price: number
-  amount0: string
-  amount1: string
-  blockTimestamp: number
-  transactionHash: string
-}
-
 function toLwCandle(c: ApiCandle): CandlestickData<UTCTimestamp> {
   return {
     time: c.t as UTCTimestamp,
@@ -110,44 +103,44 @@ function applySwap(
   return candles
 }
 
-function usePoolCandles(poolId: string, resolution: Resolution) {
-  const queryClient = useQueryClient()
+function usePoolCandles(resolution: Resolution, limit = 500) {
   const bucketSeconds = BUCKET_SECONDS[resolution]
+  const recentSwaps = useAtomValue(recentSwapsAtom)
 
-  const queryKey = ["candles", poolId, resolution] as const
-
-  const { data: candles, isLoading } = useQuery<CandlestickData<UTCTimestamp>[]>({
-    queryKey,
+  // Authoritative OHLC history from the DB. Shared/cached by query key, so it
+  // survives unmounts (e.g. the mobile drawer reopening) without re-fetching.
+  const { data: seed, isLoading } = useQuery<CandlestickData<UTCTimestamp>[]>({
+    queryKey: ["candles", POOL_ID, resolution, limit],
     queryFn: async () => {
       const res = await fetch(
-        `${API_BASE}/pools/${poolId}/candles?resolution=${resolution}&limit=500`,
+        `${API_BASE}/pools/${POOL_ID}/candles?resolution=${resolution}&limit=${limit}`,
       )
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || "Failed to fetch candles")
-      const apiCandles: ApiCandle[] = json.candles ?? []
-      return apiCandles.map(toLwCandle)
+      return (json.candles as ApiCandle[] | undefined ?? []).map(toLwCandle)
     },
     staleTime: Infinity,
+    gcTime: Infinity,
     refetchOnWindowFocus: false,
     retry: 5,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
   })
 
-  usePoolMessage((msg) => {
-    if (msg.type !== "swap") return
-    const swap = msg.data as SwapEvent
-    queryClient.setQueryData<CandlestickData<UTCTimestamp>[]>(
-      ["candles", poolId, resolution],
-      (prev) => applySwap(prev ?? [], swap, bucketSeconds),
-    )
-  })
+  // Fold the live swap window onto the seeded history. applySwap only touches
+  // the trailing candle (older swaps are ignored), so re-folding the whole
+  // window each tick is idempotent — no dedupe bookkeeping needed.
+  const candles = useMemo(() => {
+    let next = seed ?? []
+    for (const s of recentSwaps) next = applySwap(next, s, bucketSeconds)
+    return next
+  }, [seed, recentSwaps, bucketSeconds])
 
-  return { candles: candles ?? [], isLoading }
+  return { candles, isLoading }
 }
 
 export function Chart() {
-  const [resolution, setResolution] = useState<Resolution>("1m")
-  const { candles, isLoading } = usePoolCandles(POOL_ID, resolution)
+  const [resolution, setResolution] = useState<Resolution>("15m")
+  const { candles, isLoading } = usePoolCandles(resolution)
 
   return (
     <div className="flex h-full flex-col p-3">
