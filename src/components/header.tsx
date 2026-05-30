@@ -1,19 +1,15 @@
-import { 
-  // CandlestickChart, 
-  ChevronDown, 
-  MoreHorizontal, 
-  // X 
-} from "lucide-react"
-// import { Chart } from "@/components/chart"
-// import {
-//   Drawer,
-//   DrawerClose,
-//   DrawerContent,
-//   DrawerDescription,
-//   DrawerHeader,
-//   DrawerTitle,
-//   DrawerTrigger,
-// } from "@/components/ui/drawer"
+import { CandlestickChart, ChevronDown, X } from "lucide-react"
+import { Chart } from "@/components/chart"
+import { Button } from "@/components/ui/button"
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer"
 import WalletManagement from "@/components/wallet-management"
 
 
@@ -28,11 +24,18 @@ function MobileHeader() {
       </button>
 
       <div className="flex items-center gap-4">
-        {/* <Drawer>
-          <DrawerTrigger asChild aria-label="Chart">
-            <CandlestickChart className="size-5 text-muted-foreground" />
+        <Drawer>
+          <DrawerTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Chart"
+              className="text-muted-foreground"
+            >
+              <CandlestickChart className="size-5" />
+            </Button>
           </DrawerTrigger>
-          <DrawerContent className="outline-none focus:outline-none focus-visible:outline-none data-[vaul-drawer-direction=bottom]:max-h-[85vh]">
+          <DrawerContent className="data-[vaul-drawer-direction=bottom]:max-h-[85vh]">
             <DrawerHeader className="sr-only">
               <DrawerTitle>ETH/VND Biểu đồ giá</DrawerTitle>
               <DrawerDescription>Biểu đồ giá cho ETH/VND</DrawerDescription>
@@ -47,10 +50,8 @@ function MobileHeader() {
               <Chart />
             </div>
           </DrawerContent>
-        </Drawer> */}
-        <button type="button" aria-label="More" className="relative">
-          <MoreHorizontal className="size-5 text-muted-foreground" />
-        </button>
+        </Drawer>
+        <WalletManagement />
       </div>
     </header>
   )

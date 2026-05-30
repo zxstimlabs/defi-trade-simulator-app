@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState } from "react"
 import {
   CandlestickSeries,
   Chart as LWChart,
@@ -9,12 +9,8 @@ import type { CandlestickData, UTCTimestamp } from "lightweight-charts"
 import { useQueryClient, useQuery } from "@tanstack/react-query"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
-
-const POOL_ID =
-  "0x363251ac1864e05ea6f839785a02ccaef52cd97f9e2b4516a4c47b638efb4257"
-
-const API_BASE = import.meta.env.VITE_ZXSTIM_API || "http://localhost:8001"
-const WS_BASE = API_BASE.replace("http", "ws")
+import { POOL_ID, API_BASE } from "@/lib/constants"
+import { usePoolMessage } from "@/hooks/use-pool-socket"
 
 const COLORS = {
   green: "#2ebd85",
@@ -117,8 +113,6 @@ function applySwap(
 function usePoolCandles(poolId: string, resolution: Resolution) {
   const queryClient = useQueryClient()
   const bucketSeconds = BUCKET_SECONDS[resolution]
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const queryKey = ["candles", poolId, resolution] as const
 
@@ -139,45 +133,14 @@ function usePoolCandles(poolId: string, resolution: Resolution) {
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
   })
 
-  useEffect(() => {
-    function connect() {
-      try {
-        const ws = new WebSocket(`${WS_BASE}/pools/${poolId}/ws`)
-        wsRef.current = ws
-
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data)
-            if (msg.type !== "swap") return
-            const swap = msg.data as SwapEvent
-            queryClient.setQueryData<CandlestickData<UTCTimestamp>[]>(queryKey, (prev) =>
-              applySwap(prev ?? [], swap, bucketSeconds),
-            )
-          } catch (e) {
-            console.error("[chart-ws] parse error:", e)
-          }
-        }
-
-        ws.onerror = () => ws.close()
-
-        ws.onclose = () => {
-          wsRef.current = null
-          reconnectTimer.current = setTimeout(connect, 5000)
-        }
-      } catch {
-        reconnectTimer.current = setTimeout(connect, 5000)
-      }
-    }
-
-    connect()
-
-    return () => {
-      clearTimeout(reconnectTimer.current)
-      wsRef.current?.close()
-      wsRef.current = null
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [poolId, bucketSeconds, queryClient])
+  usePoolMessage((msg) => {
+    if (msg.type !== "swap") return
+    const swap = msg.data as SwapEvent
+    queryClient.setQueryData<CandlestickData<UTCTimestamp>[]>(
+      ["candles", poolId, resolution],
+      (prev) => applySwap(prev ?? [], swap, bucketSeconds),
+    )
+  })
 
   return { candles: candles ?? [], isLoading }
 }

@@ -1,15 +1,10 @@
-import { useEffect, useRef } from "react"
 import { useQueryClient, useQuery } from "@tanstack/react-query"
 import { useAtomValue } from "jotai"
 import { activeWalletAtom } from "@/atoms/activeWalletAtom"
 import type { UmKeystore } from "@/types/wallet"
 import { cn, formatEthBalance } from "@/lib/utils"
-
-const POOL_ID =
-  "0x363251ac1864e05ea6f839785a02ccaef52cd97f9e2b4516a4c47b638efb4257"
-
-const API_BASE = import.meta.env.VITE_ZXSTIM_API || "http://localhost:8001"
-const WS_BASE = API_BASE.replace("http", "ws")
+import { POOL_ID, API_BASE } from "@/lib/constants"
+import { usePoolMessage } from "@/hooks/use-pool-socket"
 
 interface SwapEvent {
   poolId: string
@@ -36,8 +31,6 @@ function dedupeAndSort(swaps: SwapEvent[]): SwapEvent[] {
 
 function useSwapStream(poolId: string, filterAddress?: string) {
   const queryClient = useQueryClient()
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const allSwapsKey = ["swaps", poolId, "all"]
   const mySwapsKey = ["swaps", poolId, filterAddress ?? "none"]
@@ -76,65 +69,34 @@ function useSwapStream(poolId: string, filterAddress?: string) {
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
   })
 
-  useEffect(() => {
-    function connect() {
-      try {
-        const ws = new WebSocket(`${WS_BASE}/pools/${poolId}/ws`)
-        wsRef.current = ws
-
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data)
-            if (msg.type === "swap") {
-              const swap: SwapEvent = msg.data
-              queryClient.setQueryData<SwapEvent[]>(allSwapsKey, (prev) => {
-                if ((prev ?? []).some((s) => s.transactionHash === swap.transactionHash)) {
-                  return prev ?? []
-                }
-                return [swap, ...(prev ?? [])].slice(0, 100)
-              })
-              if (filterAddress && swap.userAddress.toLowerCase() === filterAddress.toLowerCase()) {
-                queryClient.setQueryData<SwapEvent[]>(mySwapsKey, (prev) => {
-                  if ((prev ?? []).some((s) => s.transactionHash === swap.transactionHash)) {
-                    return prev ?? []
-                  }
-                  return [swap, ...(prev ?? [])].slice(0, 100)
-                })
-              }
-            } else if (msg.type === "recent_swaps") {
-              const deduped = dedupeAndSort(msg.data as SwapEvent[])
-              queryClient.setQueryData(allSwapsKey, deduped)
-              if (filterAddress) {
-                queryClient.setQueryData(
-                  mySwapsKey,
-                  deduped.filter((s) => s.userAddress.toLowerCase() === filterAddress.toLowerCase())
-                )
-              }
-            }
-          } catch (e) {
-            console.error("[swap-ws] parse error:", e)
+  usePoolMessage((msg) => {
+    if (msg.type === "swap") {
+      const swap = msg.data as SwapEvent
+      queryClient.setQueryData<SwapEvent[]>(allSwapsKey, (prev) => {
+        if ((prev ?? []).some((s) => s.transactionHash === swap.transactionHash)) {
+          return prev ?? []
+        }
+        return [swap, ...(prev ?? [])].slice(0, 100)
+      })
+      if (filterAddress && swap.userAddress.toLowerCase() === filterAddress.toLowerCase()) {
+        queryClient.setQueryData<SwapEvent[]>(mySwapsKey, (prev) => {
+          if ((prev ?? []).some((s) => s.transactionHash === swap.transactionHash)) {
+            return prev ?? []
           }
-        }
-
-        ws.onerror = () => ws.close()
-
-        ws.onclose = () => {
-          wsRef.current = null
-          reconnectTimer.current = setTimeout(connect, 5000)
-        }
-      } catch {
-        reconnectTimer.current = setTimeout(connect, 5000)
+          return [swap, ...(prev ?? [])].slice(0, 100)
+        })
+      }
+    } else if (msg.type === "recent_swaps") {
+      const deduped = dedupeAndSort(msg.data as SwapEvent[])
+      queryClient.setQueryData(allSwapsKey, deduped)
+      if (filterAddress) {
+        queryClient.setQueryData(
+          mySwapsKey,
+          deduped.filter((s) => s.userAddress.toLowerCase() === filterAddress.toLowerCase())
+        )
       }
     }
-
-    connect()
-
-    return () => {
-      clearTimeout(reconnectTimer.current)
-      wsRef.current?.close()
-      wsRef.current = null
-    }
-  }, [poolId, filterAddress, queryClient])
+  })
 
   return { allSwaps: allSwaps ?? [], mySwaps: mySwaps ?? [] }
 }
