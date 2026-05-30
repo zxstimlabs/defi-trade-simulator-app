@@ -1,8 +1,9 @@
+import { useEffect, useRef, useState } from "react"
 import { formatUnits, type Address } from "viem"
 import { arbitrumSepolia } from "viem/chains"
 import { useQueryClient, useQuery } from "@tanstack/react-query"
 import { Skeleton } from "@/components/ui/skeleton"
-import { formatEthBalance, formatVndBalance } from "@/lib/utils"
+import { cn, formatEthBalance, formatVndBalance } from "@/lib/utils"
 import { POOL_ID, API_BASE } from "@/lib/constants"
 
 const EXPLORER_URL = arbitrumSepolia.blockExplorers.default.url
@@ -94,6 +95,18 @@ export default function PoolInfo() {
       : undefined
   const price = priceEthInVnd?.toLocaleString(undefined, { maximumFractionDigits: 6 })
 
+  // Colour the price by its last move: green if it rose, red if it fell.
+  const prevPriceRef = useRef<number | undefined>(undefined)
+  const [priceDirection, setPriceDirection] = useState<"up" | "down" | null>(null)
+  useEffect(() => {
+    if (priceEthInVnd == null) return
+    const prev = prevPriceRef.current
+    if (prev != null && priceEthInVnd !== prev) {
+      setPriceDirection(priceEthInVnd > prev ? "up" : "down")
+    }
+    prevPriceRef.current = priceEthInVnd
+  }, [priceEthInVnd])
+
   // Total value of pool reserves in VND: (ETH reserve × ETH price) + VND reserve
   const reservesValueVnd =
     reserve0 != null && reserve1 != null && priceEthInVnd != null
@@ -142,7 +155,13 @@ export default function PoolInfo() {
         {isLoading ? (
           <Skeleton className="h-5 w-32" />
         ) : (
-          <p className="text-sm font-medium">
+          <p
+            className={cn(
+              "text-sm font-medium transition-colors",
+              priceDirection === "up" && "text-[#2ebd85]",
+              priceDirection === "down" && "text-[#f6465d]",
+            )}
+          >
             1 {symbol0} = {price ?? "-"} {symbol1}
           </p>
         )}
