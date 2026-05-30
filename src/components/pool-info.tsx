@@ -131,7 +131,7 @@ export default function PoolInfo() {
         </h2>
         <div className="flex items-center gap-1.5">
           <span className={`size-1.5 rounded-full ${pool ? "bg-[#2ebd85]" : "bg-yellow-500 animate-pulse"}`} />
-          <span className="text-xs text-muted-foreground">Mạng thử nghiệm</span>
+          <span className="text-xs text-muted-foreground">thử nghiệm</span>
         </div>
       </div>
 

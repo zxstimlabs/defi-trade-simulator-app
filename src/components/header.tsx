@@ -1,4 +1,4 @@
-import { CandlestickChart, ChevronDown, X } from "lucide-react"
+import { CandlestickChart, X } from "lucide-react"
 import { Chart } from "@/components/chart"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,25 +12,22 @@ import {
 } from "@/components/ui/drawer"
 import WalletManagement from "@/components/wallet-management"
 
-
-function MobileHeader() {
+export function Header() {
   return (
-    <header className="flex items-center justify-between border-b bg-background px-4 py-3 md:hidden">
-      <button type="button" className="flex flex-col items-start">
-        <div className="flex items-center gap-1 text-xl font-semibold leading-tight">
-          <span>ETH/VND</span>
-          <ChevronDown className="size-4 text-muted-foreground" />
-        </div>
-      </button>
+    <header className="flex items-center justify-between border-b bg-background px-4 py-3">
+      <div className="flex flex-row items-center gap-2">
+        <img src="/defivn.svg" alt="DeFi.vn logo" className="size-6 dark:invert" />
+      </div>
 
       <div className="flex items-center gap-4">
+        {/* Chart drawer — mobile only; on desktop the chart is shown inline */}
         <Drawer>
           <DrawerTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
               aria-label="Chart"
-              className="text-muted-foreground"
+              className="text-muted-foreground md:hidden"
             >
               <CandlestickChart className="size-5" />
             </Button>
@@ -54,26 +51,6 @@ function MobileHeader() {
         <WalletManagement />
       </div>
     </header>
-  )
-}
-
-function DesktopHeader() {
-  return (
-    <header className="hidden items-center gap-6 border-b bg-background px-4 py-3 md:flex md:justify-between">
-      <div className="flex flex-row items-center gap-2">
-        <img src="/defivn.svg" alt="DeFi.vn logo" className="size-6 dark:invert" />
-      </div>
-      <WalletManagement />
-    </header>
-  )
-}
-
-export function Header() {
-  return (
-    <>
-      <MobileHeader />
-      <DesktopHeader />
-    </>
   )
 }
 

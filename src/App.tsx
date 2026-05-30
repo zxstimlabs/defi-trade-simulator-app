@@ -31,23 +31,24 @@ function DesktopMain() {
 function MobileMain() {
   return (
     <main className="flex flex-1 min-h-0 flex-col gap-2">
-      <section className="overflow-y-auto">
-        <PoolInfo />
-      </section>
-      {/* Single column: tabbed Swap (default) / Market */}
-      <Tabs defaultValue="swap" className="min-h-0 flex-1">
+      {/* Tabbed secondary info: pool overview (default) / market */}
+      <Tabs defaultValue="pool" className="min-h-0 flex-1">
         <TabsList className="w-full">
-          <TabsTrigger value="swap">Giao dịch</TabsTrigger>
+          <TabsTrigger value="pool">Tổng quan</TabsTrigger>
           <TabsTrigger value="market">Thị trường</TabsTrigger>
         </TabsList>
-        {/* keepMounted so the swap form isn't wiped when peeking at the market tab */}
-        <TabsContent value="swap" keepMounted className="min-h-0 overflow-y-auto">
-          <SwapInterface />
+        {/* keepMounted so both stay subscribed to the pool socket in the background */}
+        <TabsContent value="pool" keepMounted className="min-h-0 overflow-y-auto">
+          <PoolInfo />
         </TabsContent>
         <TabsContent value="market" keepMounted className="min-h-0 overflow-y-auto">
           <MarketStatus />
         </TabsContent>
       </Tabs>
+      {/* Swap is the primary action — always visible, pinned to the bottom */}
+      <section className="overflow-y-auto">
+        <SwapInterface />
+      </section>
     </main>
   )
 }
