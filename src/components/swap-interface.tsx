@@ -76,6 +76,29 @@ function buildV4SwapInput(zeroForOne: boolean, amountIn: bigint): `0x${string}` 
 
 type SwapState = "idle" | "pending" | "success" | "error"
 
+const vnGroup = new Intl.NumberFormat("vi-VN")
+
+// Strip VND display formatting back to a parseUnits-friendly numeric string:
+// drop "." thousand separators and turn the "," decimal into ".".
+function normalizeAmount(raw: string): string {
+  let s = raw.replace(/[^\d.,]/g, "")
+  s = s.replace(/\./g, "")
+  s = s.replace(/,/g, ".")
+  const dot = s.indexOf(".")
+  if (dot !== -1) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, "")
+  return s
+}
+
+// Format a normalized numeric string for display in VND convention:
+// "." thousands on the integer part, "," as the decimal separator.
+function formatAmountVnd(normalized: string): string {
+  if (!normalized) return ""
+  const [intRaw, decRaw] = normalized.split(".")
+  const intDigits = intRaw.replace(/^0+(?=\d)/, "") || "0"
+  const intFormatted = vnGroup.format(BigInt(intDigits))
+  return normalized.includes(".") ? `${intFormatted},${decRaw ?? ""}` : intFormatted
+}
+
 function OrderPanel({
   side,
   balances,
@@ -97,6 +120,9 @@ function OrderPanel({
   const inputSymbol = zeroForOne ? "ETH" : "VND"
   const inputDecimals = 18
   const availableBalance = zeroForOne ? balances.methBalance : balances.mvndBalance
+
+  // Store the normalized numeric value; display it with VND separators.
+  const handleAmountChange = (raw: string) => setAmount(normalizeAmount(raw))
 
   const swapMutation = useMutation({
     mutationFn: async () => {
@@ -214,23 +240,23 @@ function OrderPanel({
         <span className="text-xs text-muted-foreground mr-2">Khối lượng</span>
         {isDesktop ? (
           <input
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            value={formatAmountVnd(amount)}
+            onChange={(e) => handleAmountChange(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") e.currentTarget.blur(); }}
-            type="number"
+            type="text"
             placeholder="0"
-            className="flex-1 bg-transparent text-right text-base outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="flex-1 bg-transparent text-right text-base outline-none"
           />
         ) : (
           <input
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            value={formatAmountVnd(amount)}
+            onChange={(e) => handleAmountChange(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") e.currentTarget.blur(); }}
-            type="number"
+            type="text"
             inputMode="decimal"
             pattern="[0-9]*"
             placeholder="0"
-            className="flex-1 bg-transparent text-right text-base outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="flex-1 bg-transparent text-right text-base outline-none"
           />
         )}
         <span className="ml-2 text-xs text-muted-foreground">{inputSymbol}</span>
