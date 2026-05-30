@@ -116,8 +116,8 @@ function SwapRow({ swap }: { swap: SwapEvent }) {
   const ethAmount = amount0 < 0n ? -amount0 : amount0
 
   return (
-    <div className="grid grid-cols-3 py-1 text-[10px] font-mono">
-      <span className={cn(isBuy ? "text-[#2ebd85]" : "text-[#f6465d]")}>
+    <div className="grid grid-cols-[1fr_2fr_1fr] gap-x-2 py-1 text-[10px] font-mono">
+      <span className={cn("text-left", isBuy ? "text-[#2ebd85]" : "text-[#f6465d]")}>
         {priceFormat.format(swap.price)}
       </span>
       <span className="text-right">
@@ -147,8 +147,8 @@ function TradeSection({
         <h3 className="text-sm font-bold">{title}</h3>
       </div>
       <div className="border-b-2 border-primary w-12 mb-2" />
-      <div className="grid grid-cols-3 text-xs text-muted-foreground pb-1">
-        <span>Giá (VND)</span>
+      <div className="grid grid-cols-[1fr_2fr_1fr] gap-x-2 text-xs text-muted-foreground pb-1">
+        <span className="text-left">Giá (VND)</span>
         <span className="text-right">Khối lượng (ETH)</span>
         <span className="text-right">Thời gian</span>
       </div>
