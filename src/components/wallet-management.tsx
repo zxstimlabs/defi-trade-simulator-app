@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useMemo } from "react"
 import { useAtom, useSetAtom, useAtomValue } from "jotai"
-import { Plus, LoaderCircle, Check, X, LogOut, LogIn, ShieldCheck, ShieldAlert, Coins } from "lucide-react"
+import { Plus, LoaderCircle, Check, X, LogOut, LogIn, ShieldCheck, ShieldAlert } from "lucide-react"
 import { REGEXP_ONLY_DIGITS } from "input-otp"
 import { Bytes, Keystore, Mnemonic } from "ox"
 import { mnemonicToAccount } from "viem/accounts"
@@ -159,7 +159,7 @@ function DelegationBadge({ status, error, onRetry }: {
   return null
 }
 
-type CreateState = "idle" | "creating" | "delegating" | "done" | "error"
+type CreateState = "idle" | "creating" | "delegating" | "claiming" | "done" | "error"
 
 function CreateWalletDialog() {
   const [, setWallets] = useAtom(walletsAtom)
@@ -208,7 +208,16 @@ function CreateWalletDialog() {
       })
       await delegateAccount(publicClient, walletClient)
 
-      // 3. Persist + activate
+      // 3. Seed the new wallet with some mock tokens so it starts with a balance.
+      //    A claim failure shouldn't block wallet creation.
+      setCreateState("claiming")
+      try {
+        await claimMockTokens(walletClient)
+      } catch (claimErr) {
+        console.error("[create-wallet] mock-token claim failed:", claimErr)
+      }
+
+      // 4. Persist + activate
       setCreateState("done")
       setTimeout(() => {
         setOpen(false)
@@ -225,7 +234,7 @@ function CreateWalletDialog() {
     }
   }
 
-  const isBusy = createState === "creating" || createState === "delegating"
+  const isBusy = createState === "creating" || createState === "delegating" || createState === "claiming"
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!isBusy) setOpen(o) }}>
@@ -261,6 +270,9 @@ function CreateWalletDialog() {
         )}
         {createState === "delegating" && (
           <p className="text-xs text-muted-foreground text-center">Đang thiết lập tài trợ...</p>
+        )}
+        {createState === "claiming" && (
+          <p className="text-xs text-muted-foreground text-center">Đang nhận token thử nghiệm...</p>
         )}
         {createState === "error" && error && (
           <p className="text-xs text-red-500 text-center break-words">{error}</p>
@@ -377,27 +389,7 @@ function WalletInfoDialog({ wallet }: { wallet: UmKeystore }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: bytecodeQueryKey }),
   })
 
-  const claimMutation = useMutation({
-    mutationFn: () => {
-      if (!walletClient) throw new Error("Wallet client not available")
-      return claimMockTokens(walletClient)
-    },
-  })
-
-  // Auto-reset claim mutation status so the button returns to idle
-  useEffect(() => {
-    if (claimMutation.isSuccess) {
-      const t = setTimeout(() => claimMutation.reset(), 2000)
-      return () => clearTimeout(t)
-    }
-    if (claimMutation.isError) {
-      const t = setTimeout(() => claimMutation.reset(), 3000)
-      return () => clearTimeout(t)
-    }
-  }, [claimMutation.isSuccess, claimMutation.isError, claimMutation])
-
   const handleDelegate = () => delegateMutation.mutate()
-  const handleClaim = () => claimMutation.mutate()
 
   const delegationStatus: DelegationStatus = isChecking
     ? "checking"
@@ -447,22 +439,6 @@ function WalletInfoDialog({ wallet }: { wallet: UmKeystore }) {
               <>
                 <ShieldCheck className="size-4" data-icon="inline-start" />
                 {isDelegated ? "Re-delegate" : "Delegate"}
-              </>
-            )}
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            disabled={claimMutation.isPending}
-            onClick={handleClaim}
-            title={claimMutation.error?.message}
-          >
-            {claimMutation.isPending && <LoaderCircle className="size-4 animate-spin" />}
-            {claimMutation.isSuccess && <Check className="size-4 text-[#2ebd85]" />}
-            {!claimMutation.isPending && !claimMutation.isSuccess && (
-              <>
-                <Coins className="size-4" data-icon="inline-start" />
-                {claimMutation.isError ? "Claim failed — retry" : "Claim mock ETH + VND"}
               </>
             )}
           </Button>
