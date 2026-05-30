@@ -78,25 +78,29 @@ type SwapState = "idle" | "pending" | "success" | "error"
 
 const vnGroup = new Intl.NumberFormat("vi-VN")
 
-// Strip VND display formatting back to a parseUnits-friendly numeric string:
-// drop "." thousand separators and turn the "," decimal into ".".
-function normalizeAmount(raw: string): string {
-  let s = raw.replace(/[^\d.,]/g, "")
-  s = s.replace(/\./g, "")
-  s = s.replace(/,/g, ".")
-  const dot = s.indexOf(".")
-  if (dot !== -1) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, "")
-  return s
+// Parse the field back to a parseUnits-friendly numeric string ("." decimal).
+// `allowDecimal` distinguishes whole-number amounts (VND) from fractional ones
+// (ETH). For decimals, the LAST separator the user typed — "." or "," — is the
+// decimal point; everything before it is treated as grouping and stripped. This
+// is what lets a phone's "." key work even though we display "," for decimals.
+function normalizeAmount(raw: string, allowDecimal: boolean): string {
+  const s = raw.replace(/[^\d.,]/g, "")
+  if (!allowDecimal) return s.replace(/[.,]/g, "")
+  const lastSep = Math.max(s.lastIndexOf("."), s.lastIndexOf(","))
+  if (lastSep === -1) return s
+  const intPart = s.slice(0, lastSep).replace(/[.,]/g, "")
+  const fracPart = s.slice(lastSep + 1).replace(/[.,]/g, "")
+  return `${intPart}.${fracPart}`
 }
 
-// Format a normalized numeric string for display in VND convention:
-// "." thousands on the integer part, "," as the decimal separator.
-function formatAmountVnd(normalized: string): string {
+// Display a normalized numeric string in VND convention: "," as the decimal
+// separator, and (for whole-number amounts) "." thousands grouping.
+function formatAmount(normalized: string, group: boolean): string {
   if (!normalized) return ""
   const [intRaw, decRaw] = normalized.split(".")
   const intDigits = intRaw.replace(/^0+(?=\d)/, "") || "0"
-  const intFormatted = vnGroup.format(BigInt(intDigits))
-  return normalized.includes(".") ? `${intFormatted},${decRaw ?? ""}` : intFormatted
+  const intOut = group ? vnGroup.format(BigInt(intDigits)) : intDigits
+  return normalized.includes(".") ? `${intOut},${decRaw ?? ""}` : intOut
 }
 
 function OrderPanel({
@@ -122,7 +126,8 @@ function OrderPanel({
   const availableBalance = zeroForOne ? balances.methBalance : balances.mvndBalance
 
   // Store the normalized numeric value; display it with VND separators.
-  const handleAmountChange = (raw: string) => setAmount(normalizeAmount(raw))
+  // VND amounts are whole + grouped; ETH amounts allow a decimal, ungrouped.
+  const handleAmountChange = (raw: string) => setAmount(normalizeAmount(raw, zeroForOne))
 
   const swapMutation = useMutation({
     mutationFn: async () => {
@@ -240,7 +245,7 @@ function OrderPanel({
         <span className="text-xs text-muted-foreground mr-2">Khối lượng</span>
         {isDesktop ? (
           <input
-            value={formatAmountVnd(amount)}
+            value={formatAmount(amount, !zeroForOne)}
             onChange={(e) => handleAmountChange(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") e.currentTarget.blur(); }}
             type="text"
@@ -249,12 +254,11 @@ function OrderPanel({
           />
         ) : (
           <input
-            value={formatAmountVnd(amount)}
+            value={formatAmount(amount, !zeroForOne)}
             onChange={(e) => handleAmountChange(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") e.currentTarget.blur(); }}
             type="text"
-            inputMode="decimal"
-            pattern="[0-9]*"
+            inputMode={zeroForOne ? "decimal" : "numeric"}
             placeholder="0"
             className="flex-1 bg-transparent text-right text-base outline-none"
           />
