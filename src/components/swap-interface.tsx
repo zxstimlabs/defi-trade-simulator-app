@@ -23,6 +23,7 @@ import type { UmKeystore } from "@/types/wallet"
 import { activeWalletAtom } from "@/atoms/activeWalletAtom"
 import { passwordAtom } from "@/atoms/passwordAtom"
 import { decryptWalletToAccount } from "@/lib/um-wallet"
+import { useMediaQuery } from "@/hooks/use-media-query"
 import { PERMIT2_ABI, UNIVERSAL_ROUTER_ABI } from "@/lib/abis"
 
 const CURRENCY0 = "0x3890f8Fb0F7aa237e03E995CFe7282fdb519F95a" as Address // ETH
@@ -89,6 +90,7 @@ function OrderPanel({
   const activeWallet = useAtomValue<UmKeystore | null>(activeWalletAtom)
   const password = useAtomValue(passwordAtom)
   const [amount, setAmount] = useState("")
+  const isDesktop = useMediaQuery("(min-width: 768px)")
 
   const zeroForOne = side === "sell"
   const inputToken = zeroForOne ? CURRENCY0 : CURRENCY1
@@ -206,13 +208,27 @@ function OrderPanel({
     <div className="flex flex-col gap-3">
       <div className="flex items-center border border-muted-foreground/30 px-3 py-2">
         <span className="text-xs text-muted-foreground mr-2">Khối lượng</span>
-        <input
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          type="number"
-          placeholder="0"
-          className="flex-1 bg-transparent text-right text-sm outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-        />
+        {isDesktop ? (
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") e.currentTarget.blur(); }}
+            type="number"
+            placeholder="0"
+            className="flex-1 bg-transparent text-right text-base outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+        ) : (
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") e.currentTarget.blur(); }}
+            type="number"
+            inputMode="decimal"
+            pattern="[0-9]*"
+            placeholder="0"
+            className="flex-1 bg-transparent text-right text-base outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+        )}
         <span className="ml-2 text-xs text-muted-foreground">{inputSymbol}</span>
       </div>
 
